@@ -1,0 +1,9 @@
+[package]
+name = "boggle"
+version = "0.1.0"
+authors = ["panicbit <panicbit.dev@gmail.com>"]
+
+[dependencies]
+sequence_trie = "0.3.5"
+failure = "0.1.1"
+failure_derive = "0.1.1"
