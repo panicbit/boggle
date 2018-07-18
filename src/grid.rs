@@ -15,6 +15,9 @@ impl Grid {
     pub const HEIGHT: usize = 4;
 
     pub fn get(&self, x: usize, y: usize) -> Option<char> {
+        if x >= Self::WIDTH || y >= Self::HEIGHT {
+            return None;
+        }
         let row = y.checked_mul(Self::WIDTH)?;
         let pos = row.checked_add(x)?;
         self.chars.get(pos).cloned()
