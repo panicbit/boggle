@@ -49,9 +49,13 @@ impl Dict {
         }
     }
 
+    pub fn words(&self) -> impl Iterator<Item = &str> {
+        self.trie.values().map(|s|&**s)
+    }
+
     pub fn serialize_packed<W: Write>(&self, w: &mut W) -> io::Result<()> {
         let mut w = BitWriter::<BE>::new(w);
-        let mut words: Vec<&String> = self.trie.values().collect();
+        let mut words: Vec<&str> = self.words().collect();
         words.sort();
 
         let mut state = String::new();
