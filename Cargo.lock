@@ -41,6 +41,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "boggle_dictcat"
+version = "0.1.0"
+dependencies = [
+ "boggle 0.1.0",
+]
+
+[[package]]
 name = "boggle_mkdict"
 version = "0.1.0"
 dependencies = [

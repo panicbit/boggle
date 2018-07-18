@@ -53,7 +53,7 @@ impl Dict {
         self.trie.values().map(|s|&**s)
     }
 
-    pub fn deserialize_packed<R: Read>(&self, r: &mut R) -> io::Result<Self> {
+    pub fn deserialize_packed<R: Read>(r: &mut R) -> io::Result<Self> {
         let mut r = BitReader::<BE>::new(r);
         let mut dict = Dict::new();
         let mut state = String::new();
@@ -63,21 +63,22 @@ impl Dict {
             match r.read_bit()? {
                 // emit and pop
                 false => {
-                    if !skip_emit && !state.is_empty() {
-                        dict.add(state.clone());
-                        skip_emit = true;
-                    }
-
                     let n = r.read::<u8>(3)?;
-
-                    for _ in 0..n {
-                        state.pop();
-                    }
 
                     // We are done
                     if n == 0 && skip_emit {
                         return Ok(dict);
                     }
+
+                    if !skip_emit && !state.is_empty() {
+                        dict.add(state.clone());
+                        skip_emit = true;
+                    }
+
+                    for _ in 0..n {
+                        state.pop();
+                    }
+
                 }
                 // push
                 true => {
@@ -100,6 +101,7 @@ impl Dict {
 
         for word in words {
             let mut need_to_pop = 0;
+            let skip_pop = state.is_empty();
 
             // Pop from state until it is a prefix of `word`
             while !word.starts_with(&state) {
@@ -108,7 +110,7 @@ impl Dict {
             }
 
             // Write `pop n` instruction
-            {
+            if !skip_pop {
                 // More than one pop is needed
                 while need_to_pop > 7 {
                     need_to_pop -= 7;
@@ -118,12 +120,10 @@ impl Dict {
                     w.write(3, 0b111)?;
                 }
 
-                if !state.is_empty() {
-                    // Signal pop
-                    w.write_bit(false)?;
-                    // n = 7
-                    w.write(3, need_to_pop)?;
-                }
+                // Signal pop
+                w.write_bit(false)?;
+                // n = 7
+                w.write(3, need_to_pop)?;
             }
 
             // Push suffix chars
