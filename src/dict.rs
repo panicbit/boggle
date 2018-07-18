@@ -1,5 +1,5 @@
 use sequence_trie::SequenceTrie;
-
+use std::iter::FromIterator;
 use std::ops;
 
 pub struct Dict {
@@ -38,6 +38,19 @@ impl Dict {
         for word in words {
             self.add(word.as_ref());
         }
+    }
+}
+
+impl<T: Into<String>> FromIterator<T> for Dict {
+    fn from_iter<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = T>
+    {
+        let mut dict = Self::new();
+        for word in iter {
+            dict.add(word);
+        }
+        dict
     }
 }
 
