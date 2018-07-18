@@ -8,3 +8,9 @@ sequence_trie = "0.3.5"
 failure = "0.1.1"
 failure_derive = "0.1.1"
 rand = "0.5.4"
+bitstream-io = "0.6.3"
+
+[workspace]
+members = [
+    "mkdict",
+]
