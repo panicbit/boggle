@@ -1,8 +1,8 @@
 use sequence_trie::SequenceTrie;
 use std::iter::FromIterator;
 use std::ops;
-use std::io::{self, Write};
-use bitstream_io::{BitWriter, BE};
+use std::io::{self, Read, Write};
+use bitstream_io::{BitReader, BitWriter, BE};
 
 pub struct Dict {
     trie: SequenceTrie<char, String>,
@@ -53,6 +53,44 @@ impl Dict {
         self.trie.values().map(|s|&**s)
     }
 
+    pub fn deserialize_packed<R: Read>(&self, r: &mut R) -> io::Result<Self> {
+        let mut r = BitReader::<BE>::new(r);
+        let mut dict = Dict::new();
+        let mut state = String::new();
+        let mut skip_emit = false;
+
+        loop {
+            match r.read_bit()? {
+                // emit and pop
+                false => {
+                    if !skip_emit && !state.is_empty() {
+                        dict.add(state.clone());
+                        skip_emit = true;
+                    }
+
+                    let n = r.read::<u8>(3)?;
+
+                    for _ in 0..n {
+                        state.pop();
+                    }
+
+                    // We are done
+                    if n == 0 && skip_emit {
+                        return Ok(dict);
+                    }
+                }
+                // push
+                true => {
+                    skip_emit = false;
+
+                    let ch = r.read::<u8>(5)?;
+                    let ch = b'a' + ch;
+                    state.push(ch as char);
+                }
+            }
+        }
+    }
+
     pub fn serialize_packed<W: Write>(&self, w: &mut W) -> io::Result<()> {
         let mut w = BitWriter::<BE>::new(w);
         let mut words: Vec<&str> = self.words().collect();
@@ -80,7 +118,7 @@ impl Dict {
                     w.write(3, 0b111)?;
                 }
 
-                if need_to_pop > 0 {
+                if !state.is_empty() {
                     // Signal pop
                     w.write_bit(false)?;
                     // n = 7
@@ -91,10 +129,9 @@ impl Dict {
             // Push suffix chars
             for ch in word.chars().skip(state.len()) {
                 state.push(ch);
-                // Transpose char to range 1..=27.
-                // It ensures the highest bit is always set
-                // and that it fits into 5 bits.
-                let ch: u8 = ch as u8 - b'a' + 1;
+                // Transpose char to range 0..26,
+                // ensuring that it fits into 5 bits.
+                let ch: u8 = ch as u8 - b'a';
                 w.write_bit(true)?;
                 w.write(5, ch)?;
             }
