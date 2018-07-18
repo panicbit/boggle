@@ -12,5 +12,6 @@ bitstream-io = "0.6.3"
 
 [workspace]
 members = [
+    "dictcat",
     "mkdict",
 ]
