@@ -1,5 +1,6 @@
 extern crate sequence_trie;
 extern crate failure;
+extern crate rand;
 #[macro_use] extern crate failure_derive;
 
 mod dict;
