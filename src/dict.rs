@@ -80,10 +80,12 @@ impl Dict {
                     w.write(3, 0b111)?;
                 }
 
-                // Signal pop
-                w.write_bit(false)?;
-                // n = 7
-                w.write(3, need_to_pop)?;
+                if need_to_pop > 0 {
+                    // Signal pop
+                    w.write_bit(false)?;
+                    // n = 7
+                    w.write(3, need_to_pop)?;
+                }
             }
 
             // Push suffix chars
@@ -93,10 +95,8 @@ impl Dict {
                 // It ensures the highest bit is always set
                 // and that it fits into 5 bits.
                 let ch: u8 = ch as u8 - b'a' + 1;
-                let num_bits = 8 - ch.leading_zeros();
-                debug_assert!(num_bits > 0);
-
-                w.write(num_bits, ch)?;
+                w.write_bit(true)?;
+                w.write(5, ch)?;
             }
         }
 
