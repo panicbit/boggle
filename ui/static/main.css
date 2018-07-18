@@ -1,0 +1,8 @@
+
+td {
+    border: 3px outset;
+    border-collapse: collapse;
+    text-align: center;
+    width: 1.2rem;
+    height: 1.2rem;
+}

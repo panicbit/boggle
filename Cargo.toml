@@ -14,4 +14,5 @@ bitstream-io = "0.6.3"
 members = [
     "dictcat",
     "mkdict",
+    "ui",
 ]
