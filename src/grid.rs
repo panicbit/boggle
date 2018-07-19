@@ -5,7 +5,7 @@ use Dict;
 use rand::Rng;
 use rand::distributions::{Distribution, Standard, Weighted, WeightedChoice};
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct Grid {
     chars: [char; Grid::WIDTH * Grid::HEIGHT],
 }
