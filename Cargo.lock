@@ -74,6 +74,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "boggle_solve"
+version = "0.1.0"
+dependencies = [
+ "boggle 0.1.0",
+]
+
+[[package]]
 name = "byteorder"
 version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

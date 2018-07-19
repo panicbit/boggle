@@ -1,7 +1,7 @@
 [package]
-name = "boggle_mkdict"
+name = "boggle_solve"
 version = "0.1.0"
 authors = ["panicbit <panicbit.dev@gmail.com>"]
 
 [dependencies]
-boggle = { path = ".." }
+boggle = { path = "../.." }

@@ -1,0 +1,7 @@
+[package]
+name = "boggle_mkdict"
+version = "0.1.0"
+authors = ["panicbit <panicbit.dev@gmail.com>"]
+
+[dependencies]
+boggle = { path = "../.." }
