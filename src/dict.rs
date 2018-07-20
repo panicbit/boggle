@@ -5,6 +5,7 @@ use std::io::{self, Read, Write};
 use bitstream_io::{BitReader, BitWriter, BE};
 use serde;
 
+#[derive(Debug, Clone)]
 pub struct Dict {
     trie: SequenceTrie<char, String>,
 }

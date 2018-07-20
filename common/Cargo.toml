@@ -1,0 +1,16 @@
+cargo-features = ["edition"]
+
+[package]
+name = "boggle_common"
+version = "0.1.0"
+authors = ["panicbit <panicbit.dev@gmail.com>"]
+
+edition = "2018"
+
+[dependencies]
+boggle = { path = ".." }
+serde = "1.0.70"
+serde_derive = "1.0.70"
+ws = "0.7.6"
+bincode = "1.0.1"
+failure = "0.1.1"
