@@ -3,6 +3,7 @@ use std::iter::FromIterator;
 use std::ops;
 use std::io::{self, Read, Write};
 use bitstream_io::{BitReader, BitWriter, BE};
+use serde;
 
 pub struct Dict {
     trie: SequenceTrie<char, String>,
@@ -172,5 +173,30 @@ impl ops::Deref for Dict {
 impl ops::DerefMut for Dict {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.trie
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Dict {
+    fn deserialize<D>(de: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>
+    {
+        let dict = Vec::<u8>::deserialize(de)?;
+        let dict = Dict::deserialize_packed(&mut dict.as_slice())
+            .map_err(serde::de::Error::custom)?;
+        Ok(dict)
+    }
+}
+
+impl serde::Serialize for Dict {
+    fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer
+    {
+        let mut dict = Vec::new();
+        self.serialize_packed(&mut dict)
+            .map_err(serde::ser::Error::custom)?;
+
+        dict.serialize(ser)
     }
 }
