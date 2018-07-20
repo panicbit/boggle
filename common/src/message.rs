@@ -2,7 +2,7 @@ use failure::Error;
 use boggle::{Grid, Dict};
 use std::io::{Read, Write};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub enum Message {
     NewGame(NewGame),
 }
@@ -29,7 +29,7 @@ impl Message {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct NewGame {
     pub grid: Grid,
     pub words: Dict,

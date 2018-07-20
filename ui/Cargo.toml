@@ -5,6 +5,7 @@ authors = ["panicbit <panicbit.dev@gmail.com>"]
 
 [dependencies]
 boggle = { path = ".." }
+boggle_common = { path = "../common" }
 yew = { git = "https://github.com/DenisKolodin/yew" }
-rand = { version = "0.5.4", features = ["stdweb"] }
-dict = { path = "../dict" }
+stdweb = "0.4.8"
+failure = "0.1.1"

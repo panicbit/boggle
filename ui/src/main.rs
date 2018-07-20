@@ -1,15 +1,17 @@
-#[macro_use]
-extern crate yew;
+extern crate failure;
 extern crate boggle;
-extern crate rand;
-extern crate dict;
+extern crate boggle_common;
+#[macro_use] extern crate yew;
+extern crate stdweb;
 
+use failure::Error;
 use yew::prelude::*;
 use yew::services::ConsoleService;
+use yew::services::websocket::{WebSocketService, WebSocketStatus};
+use yew::format::{Binary, Text};
 use boggle::Grid;
 use std::collections::HashSet;
-use rand::{Rng, thread_rng};
-use dict::DICT;
+use boggle_common::message::{self, Message};
 
 struct Model {
     console: ConsoleService,
@@ -42,6 +44,7 @@ impl Model {
 }
  
 enum Msg {
+    NewGame(message::NewGame),
     ChangeWord(String),
     SubmitWord,
     NoOp,
@@ -51,12 +54,16 @@ impl Component for Model {
     type Message = Msg;
     type Properties = ();
 
-    fn create(_: Self::Properties, _: ComponentLink<Self>) -> Self {
-        let grid = thread_rng().gen::<Grid>();
+    fn create(_: Self::Properties, link: ComponentLink<Self>) -> Self {
+        connect_to_server(link).unwrap();
+        // let server = WebSocketService::new().connect(
+        //     "ws://"
+        // );
+        let grid = "rrrrrrrrrrrrrrrr".parse::<Grid>().unwrap();
         
         Self {
             console: ConsoleService::new(),
-            words: grid.words(&DICT),
+            words: HashSet::new(),
             grid,
             word: String::new(),
             found_words: Vec::new(),
@@ -65,6 +72,11 @@ impl Component for Model {
  
     fn update(&mut self, msg: Self::Message) -> ShouldRender {
         match msg {
+            Msg::NewGame(new_game) => {
+                self.grid = new_game.grid;
+                self.words = new_game.words.values().cloned().collect();
+                self.found_words.clear();
+            },
             Msg::ChangeWord(word) => self.word = word,
             Msg::SubmitWord => {
                 let word = self.word.trim().to_lowercase();
@@ -109,6 +121,53 @@ impl Renderable<Model> for Model {
         }
     }
 }
+
+fn connect_to_server(link: ComponentLink<Model>) -> Result<(), Error> {
+    let location = stdweb::web::window().location().expect("window location");
+    let hostname = location.hostname()?;
+    let port = location.port()?;
+    let port = port.parse::<u16>()?;
+    let port = port + 1;
+    let url = format!("ws://{}:{}", hostname, port);
+
+    ConsoleService::new().log(&format!("Connecting to '{}'", url));
+    WebSocketService::new().connect(
+        &url,
+        link.send_back(|msg: BinaryMessage| {
+            let msg = msg.0.unwrap();
+            let msg = Message::from_slice(&msg).unwrap();
+
+            match msg {
+                Message::NewGame(new_game) => Msg::NewGame(new_game),
+            }
+        }),
+        Callback::from(|status| {
+            let mut console = ConsoleService::new();
+            match status {
+                WebSocketStatus::Opened => console.log("ws: opened"),
+                WebSocketStatus::Closed => console.log("ws: closed"),
+                WebSocketStatus::Error => console.log("ws: error"),
+            }
+        }),
+    );
+
+    Ok(())
+}
+
+impl From<Binary> for BinaryMessage {
+    fn from(m: Binary) -> Self {
+        BinaryMessage(m)
+    }
+}
+
+impl From<Text> for BinaryMessage {
+    fn from(m: Text) -> Self {
+        BinaryMessage(m.map(Vec::from))
+    }
+}
+
+
+struct BinaryMessage(Result<Vec<u8>, Error>);
  
 fn main() {
     yew::initialize();
