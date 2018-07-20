@@ -1,0 +1,11 @@
+[package]
+name = "dict"
+version = "0.1.0"
+authors = ["panicbit <panicbit.dev@gmail.com>"]
+
+[dependencies]
+boggle = { path = ".." }
+lazy_static = "1.0.2"
+
+[build-dependencies]
+boggle = { path = ".." }

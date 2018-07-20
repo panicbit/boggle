@@ -2,21 +2,14 @@
 extern crate yew;
 extern crate boggle;
 extern crate rand;
-#[macro_use] extern crate lazy_static;
+extern crate dict;
 
 use yew::prelude::*;
 use yew::services::ConsoleService;
-use boggle::{Grid, Dict};
+use boggle::Grid;
 use std::collections::HashSet;
 use rand::{Rng, thread_rng};
-
-lazy_static! {
-    static ref DICT: Dict = {
-        let mut dict = include_bytes!(concat!(env!("OUT_DIR"), "/dict")).as_ref();
-        Dict::deserialize_packed(&mut dict).unwrap()
-    };
-}
-// include!(concat!(env!("OUT_DIR"), "/hello.rs"));
+use dict::DICT;
 
 struct Model {
     console: ConsoleService,

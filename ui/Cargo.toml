@@ -7,7 +7,4 @@ authors = ["panicbit <panicbit.dev@gmail.com>"]
 boggle = { path = ".." }
 yew = { git = "https://github.com/DenisKolodin/yew" }
 rand = { version = "0.5.4", features = ["stdweb"] }
-lazy_static = "1.0.2"
-
-[build-dependencies]
-boggle = { path = ".." }
+dict = { path = "../dict" }
