@@ -6,7 +6,7 @@ use dict::DICT;
 
 use std::io;
 use std::net::SocketAddr;
-use boggle_common::message;
+use boggle_common::message::*;
 
 pub struct Server {
     ws: WebSocket<Factory>,
@@ -41,10 +41,12 @@ impl ws::Factory for Factory {
         let grid = thread_rng().gen::<Grid>();
         let words = grid.words(&DICT).into_iter().collect::<Dict>();
 
-        client.send(message::NewGame {
+        let message = Message::NewGame(NewGame {
             grid: grid.clone(),
             words: words.clone(),
-        }).ok();
+        }).to_vec().unwrap();
+
+        client.send(message).ok();
 
         Handler {
             grid,

@@ -1,5 +1,6 @@
 use failure::Error;
 use boggle::{Grid, Dict};
+use std::io::{Read, Write};
 
 #[derive(Serialize, Deserialize)]
 pub enum Message {
@@ -7,16 +8,24 @@ pub enum Message {
 }
 
 impl Message {
-    pub fn decode(m: ws::Message) -> Result<Self, Error> {
-        let m = m.into_data();
-        let m = bincode::deserialize(&m)?;
+    pub fn decode<R: Read>(r: &mut R) -> Result<Self, Error> {
+        let m = bincode::deserialize_from(r)?;
         Ok(m)
     }
-}
 
-impl From<Message> for ws::Message {
-    fn from(m: Message) -> Self {
-        bincode::serialize(&m).unwrap().into()
+    pub fn encode<W: Write>(&self, w: &mut W) -> Result<(), Error> {
+        bincode::serialize_into(w, self)?;
+        Ok(())
+    }
+
+    pub fn from_slice(mut data: &[u8]) -> Result<Self, Error> {
+        Self::decode(&mut data)
+    }
+
+    pub fn to_vec(&self) -> Result<Vec<u8>, Error> {
+        let mut data = Vec::new();
+        self.encode(&mut data)?;
+        Ok(data)
     }
 }
 
@@ -24,10 +33,4 @@ impl From<Message> for ws::Message {
 pub struct NewGame {
     pub grid: Grid,
     pub words: Dict,
-}
-
-impl From<NewGame> for ws::Message {
-    fn from(m: NewGame) -> Self {
-        Message::NewGame(m).into()
-    }
 }
