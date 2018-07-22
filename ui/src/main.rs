@@ -11,7 +11,7 @@ use yew::services::websocket::{WebSocketService, WebSocketStatus};
 use yew::format::{Binary, Text};
 use boggle::Grid;
 use std::collections::HashSet;
-use boggle_common::message::{self, Message};
+use boggle_common::client;
 
 struct Model {
     console: ConsoleService,
@@ -44,7 +44,7 @@ impl Model {
 }
  
 enum Msg {
-    NewGame(message::NewGame),
+    ClientMessage(client::message::Message),
     ChangeWord(String),
     SubmitWord,
     NoOp,
@@ -56,10 +56,7 @@ impl Component for Model {
 
     fn create(_: Self::Properties, link: ComponentLink<Self>) -> Self {
         connect_to_server(link).unwrap();
-        // let server = WebSocketService::new().connect(
-        //     "ws://"
-        // );
-        let grid = "rrrrrrrrrrrrrrrr".parse::<Grid>().unwrap();
+        let grid = "somethingiswrong".parse::<Grid>().unwrap();
         
         Self {
             console: ConsoleService::new(),
@@ -72,7 +69,7 @@ impl Component for Model {
  
     fn update(&mut self, msg: Self::Message) -> ShouldRender {
         match msg {
-            Msg::NewGame(new_game) => {
+            Msg::ClientMessage(client::Message::NewGame(new_game)) => {
                 self.grid = new_game.grid;
                 self.words = new_game.words.values().cloned().collect();
                 self.found_words.clear();
@@ -135,11 +132,9 @@ fn connect_to_server(link: ComponentLink<Model>) -> Result<(), Error> {
         &url,
         link.send_back(|msg: BinaryMessage| {
             let msg = msg.0.unwrap();
-            let msg = Message::from_slice(&msg).unwrap();
+            let msg = client::Message::from_slice(&msg).unwrap();
 
-            match msg {
-                Message::NewGame(new_game) => Msg::NewGame(new_game),
-            }
+            Msg::ClientMessage(msg)
         }),
         Callback::from(|status| {
             let mut console = ConsoleService::new();
@@ -165,7 +160,6 @@ impl From<Text> for BinaryMessage {
         BinaryMessage(m.map(Vec::from))
     }
 }
-
 
 struct BinaryMessage(Result<Vec<u8>, Error>);
  
