@@ -5,7 +5,7 @@ use Dict;
 use rand::Rng;
 use rand::distributions::{Distribution, Standard, Weighted, WeightedChoice};
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Grid {
     chars: [char; Grid::WIDTH * Grid::HEIGHT],
 }
@@ -77,6 +77,12 @@ impl Grid {
         }
 
         words
+    }
+}
+
+impl Default for Grid {
+    fn default() -> Self {
+        "voidvoidvoidvoid".parse().unwrap()
     }
 }
 
