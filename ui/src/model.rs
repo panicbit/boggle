@@ -1,10 +1,8 @@
 use yew::prelude::*;
 use yew::services::ConsoleService;
-use yew::services::websocket::{WebSocketService, WebSocketStatus};
+use yew::services::websocket::{WebSocketService, WebSocketStatus, WebSocketTask};
 use boggle::{Grid, Dict};
-use boggle_common::client;
-use std::cell::RefCell;
-use std::rc::Rc;
+use boggle_common::{client, server};
 use std::collections::HashSet;
 use stdweb::web;
 use failure::Error;
@@ -17,16 +15,18 @@ pub mod play;
 pub use self::play::Play;
 
 pub struct Model {
+    server: WebSocketTask,
     console: ConsoleService,
     state: State,
-    game: Rc<RefCell<Game>>,
+    game: Game,
 }
 
-#[derive(PartialEq, Eq, Default)]
+#[derive(PartialEq, Eq, Default, Clone)]
 pub struct Game {
     grid: Grid,
     words: HashSet<String>,
     found_words: Vec<String>,
+    players: Vec<(String, usize)>,
 }
 
 pub enum State {
@@ -45,9 +45,10 @@ impl Component for Model {
     type Properties = ();
 
     fn create(_props: (), link: ComponentLink<Self>) -> Self {
-        connect_to_server(link).unwrap();
+        let server = connect_to_server(link).unwrap();
 
         Model {
+            server,
             state: State::Login,
             console: ConsoleService::new(),
             game: <_>::default(),
@@ -57,19 +58,36 @@ impl Component for Model {
     fn update(&mut self, msg: Self::Message) -> ShouldRender {
         match msg {
             Msg::StartPlay(nick) => {
-                self.state = State::Play;
-                self.console.warn("TODO: send login");
+                self.server.send_binary(BinaryMessage(server::Message::Login(server::message::Login {
+                    nick: nick,
+                }).to_vec()));
             },
             Msg::FoundWord(index, word) => {
-                let mut game = self.game.borrow_mut();
                 self.console.log(&format!("Found: {}", word));
-                game.found_words.insert(index, word);
-                self.console.warn("TODO: Submit word");
+                self.game.found_words.insert(index, word.clone());
+                self.server.send_binary(BinaryMessage(server::Message::SubmitWord(server::message::SubmitWord {
+                    word,
+                }).to_vec()));
             },
             Msg::ClientMessage(client::Message::NewGame(new_game)) => {
-                let mut game = self.game.borrow_mut();
-                game.grid = new_game.grid;
-                game.words = new_game.words.values().cloned().collect();
+                self.game = Game::default();
+                self.game.grid = new_game.grid;
+                self.game.words = new_game.words.values().cloned().collect();
+                self.state = State::Play;
+            },
+            Msg::ClientMessage(client::Message::NickAlreadyInUse(msg)) => {
+                web::alert(&format!("'{}' is already in use", msg.nick));
+            },
+            Msg::ClientMessage(client::Message::PlayerStatus(status)) => {
+                self.console.log(&format!("status: {:?}", status));
+
+                if let Some((_, ref mut found_words)) = self.game.players.iter_mut().find(|(name, _)| &status.nick == name) {
+                    *found_words = status.found_words;
+                } else {
+                    self.game.players.push((status.nick, status.found_words));
+                }
+
+                self.game.players.sort_by(|(_, count_a), (_, count_b)| count_b.cmp(&count_a));
             }
         }
         
@@ -95,7 +113,7 @@ impl Renderable<Self> for Model {
     }
 }
 
-fn connect_to_server(link: ComponentLink<Model>) -> Result<(), Error> {
+fn connect_to_server(link: ComponentLink<Model>) -> Result<WebSocketTask, Error> {
     let location = web::window().location().expect("window location");
     let hostname = location.hostname()?;
     let port = location.port()?;
@@ -104,7 +122,7 @@ fn connect_to_server(link: ComponentLink<Model>) -> Result<(), Error> {
     let url = format!("ws://{}:{}", hostname, port);
 
     ConsoleService::new().log(&format!("Connecting to '{}'", url));
-    WebSocketService::new().connect(
+    let server = WebSocketService::new().connect(
         &url,
         link.send_back(|msg: BinaryMessage| {
             let msg = msg.0.unwrap();
@@ -115,12 +133,12 @@ fn connect_to_server(link: ComponentLink<Model>) -> Result<(), Error> {
         Callback::from(|status| {
             let mut console = ConsoleService::new();
             match status {
-                WebSocketStatus::Opened => console.log("ws: opened"),
-                WebSocketStatus::Closed => console.log("ws: closed"),
-                WebSocketStatus::Error => console.log("ws: error"),
+                WebSocketStatus::Opened => console.info("ws: opened"),
+                WebSocketStatus::Closed => console.error("ws: closed"),
+                WebSocketStatus::Error => console.error("ws: error"),
             }
         }),
     );
 
-    Ok(())
+    Ok(server)
 }

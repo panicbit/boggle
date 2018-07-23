@@ -1,4 +1,5 @@
 #![feature(non_modrs_mods)]
+#![feature(nll)]
 extern crate failure;
 extern crate boggle;
 extern crate boggle_common;
@@ -27,6 +28,12 @@ impl From<Binary> for BinaryMessage {
 impl From<Text> for BinaryMessage {
     fn from(m: Text) -> Self {
         BinaryMessage(m.map(Vec::from))
+    }
+}
+
+impl From<BinaryMessage> for Binary {
+    fn from(m: BinaryMessage) -> Self {
+        m.0.into()
     }
 }
 

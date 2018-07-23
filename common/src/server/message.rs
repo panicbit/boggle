@@ -1,12 +1,10 @@
 use failure::Error;
-use boggle::{Grid, Dict};
 use std::io::{Read, Write};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Message {
-    NewGame(NewGame),
-    NickAlreadyInUse(NickAlreadyInUse),
-    PlayerStatus(PlayerStatus)
+    Login(Login),
+    SubmitWord(SubmitWord),
 }
 
 impl Message {
@@ -32,18 +30,11 @@ impl Message {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct NewGame {
-    pub grid: Grid,
-    pub words: Dict,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct NickAlreadyInUse {
+pub struct Login {
     pub nick: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct PlayerStatus {
-    pub nick: String,
-    pub found_words: usize,
+pub struct SubmitWord {
+    pub word: String,
 }
