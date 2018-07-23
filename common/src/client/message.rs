@@ -33,6 +33,7 @@ impl Message {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct NewGame {
+    pub nick: String,
     pub grid: Grid,
     pub words: Dict,
 }

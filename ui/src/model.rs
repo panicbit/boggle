@@ -23,6 +23,7 @@ pub struct Model {
 
 #[derive(PartialEq, Eq, Default, Clone)]
 pub struct Game {
+    nick: String,
     grid: Grid,
     words: HashSet<String>,
     found_words: Vec<String>,
@@ -71,6 +72,7 @@ impl Component for Model {
             },
             Msg::ClientMessage(client::Message::NewGame(new_game)) => {
                 self.game = Game::default();
+                self.game.nick = new_game.nick;
                 self.game.grid = new_game.grid;
                 self.game.words = new_game.words.values().cloned().collect();
                 self.state = State::Play;

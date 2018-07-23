@@ -129,12 +129,13 @@ impl ws::Handler for Handler {
 
                 if game.players.contains_key(&login.nick) {
                     self.client.send(client::Message::NickAlreadyInUse(NickAlreadyInUse {
-                        nick: login.nick,
+                        nick: login.nick.clone(),
                     }).to_vec().unwrap())?;
                     return Ok(());
                 }
 
                 self.client.send(client::Message::NewGame(NewGame {
+                    nick: login.nick.clone(),
                     grid: game.grid.clone(),
                     words: game.words.clone(),
                 }).to_vec().unwrap())?;

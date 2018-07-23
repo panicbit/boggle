@@ -105,9 +105,12 @@ impl Renderable<Play> for Play {
                         },
                     />
                     <ol class="playerlist",>
-                        { for self.game.players.iter().map(|(name, score)| html! {
-                            <li>{ format!("({}) {}", score, name) }</li>
-                        }) }
+                        { for self.game.players.iter().map(|(nick, score)|
+                            match &self.game.nick == nick {
+                                true => html! { <li><strong>{ format!("({}) {}", score, nick) }</strong></li> },
+                                false => html! { <li>{ format!("({}) {}", score, nick) }</li> },
+                            }
+                        ) }
                     </ol>
                 </div>
                 <div>
