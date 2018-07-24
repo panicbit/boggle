@@ -48,3 +48,15 @@ pub struct PlayerStatus {
     pub nick: String,
     pub found_words: usize,
 }
+
+#[cfg(feature="actix-web")]
+impl From<Message> for actix_web::Binary {
+    fn from(msg: Message) -> Self {
+        msg.to_vec().unwrap().into()
+    }
+}
+
+#[cfg(feature="actix")]
+impl actix::Message for Message {
+    type Result = Result<(), Error>;
+}

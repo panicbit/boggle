@@ -1,49 +1,44 @@
 #[macro_use]
 extern crate failure;
 
-use std::net::{ToSocketAddrs};
-use ws::{WebSocket, Sender, Message, CloseCode};
+use actix::prelude::*;
+use actix_web::ws;
 use boggle::{Grid, Dict};
 use rand::{Rng, thread_rng};
 use dict::DICT;
-use std::io;
-use std::net::SocketAddr;
 use boggle_common::{client, server};
 use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
-use std::cell::RefCell;
+use std::sync::{Arc, Mutex};
+use failure::Error;
 
 pub struct Server {
-    ws: WebSocket<Factory>,
+    game: Arc<Mutex<Game>>,
 }
 
 impl Server {
-    pub fn bind<A>(addr: A) -> ws::Result<Self>
-    where
-        A: ToSocketAddrs
-    {
-        Ok(Self {
-            ws: WebSocket::new(Factory::new())?.bind(addr)?,
-        })
+    pub fn new() -> Self {
+        Self {
+            game: Arc::new(Mutex::new(Game::new())),
+        }
     }
+}
 
-    pub fn local_addr(&self) -> io::Result<SocketAddr> {
-        self.ws.local_addr()
-    }
-
-    pub fn run(self) -> ws::Result<()> {
-        self.ws.run()?;
-        Ok(())
+impl Server {
+    pub fn new_client(&self) -> Client {
+        Client {
+            nick: String::new(),
+            game: self.game.clone(),
+        }
     }
 }
 
 struct Player {
-    client: Sender,
+    client: Addr<Client>,
     found_words: HashSet<String>,
 }
 
 impl Player {
-    fn new(client: Sender) -> Self {
+    fn new(client: Addr<Client>) -> Self {
         Self {
             client,
             found_words: HashSet::new(),
@@ -70,85 +65,88 @@ impl Game {
     }
 }
 
-crate struct Factory {
-    game: Rc<RefCell<Game>>,
-}
-
-impl Factory {
-    crate fn new() -> Self {
-        Self {
-            game: Rc::new(RefCell::new(Game::new())),
-        }
-    }
-}
-
-impl ws::Factory for Factory {
-    type Handler = Handler;
-
-    fn connection_made(&mut self, client: Sender) -> Self::Handler {
-        Handler {
-            nick: String::new(),
-            game: self.game.clone(),
-            client,
-        }
-    }
-}
-
-crate struct Handler {
-    game: Rc<RefCell<Game>>,
-    client: Sender,
+pub struct Client {
+    game: Arc<Mutex<Game>>,
     nick: String,
 }
 
-impl Handler {
-    fn broadcast_found_words(&self, game: &mut Game, nick: String, found_words: usize) -> ws::Result<()> {
+impl Client {
+    fn broadcast_found_words(&self, game: &mut Game, nick: String, found_words: usize) -> Result<(), Error> {
         use self::client::message::PlayerStatus;
         for (_, player) in &game.players {
-            player.client.send(client::Message::PlayerStatus(PlayerStatus {
+            player.client.try_send(client::Message::PlayerStatus(PlayerStatus {
                 nick: nick.clone(),
                 found_words,
-            }).to_vec().unwrap())?;
+            })).map_err(|e| format_err!("{}", e))?;
         }
 
         Ok(())
     }
 }
 
-impl ws::Handler for Handler {
-    fn on_message(&mut self, msg: Message) -> ws::Result<()> {
+impl Actor for Client {
+    type Context = ws::WebsocketContext<Self>;
+}
+
+impl Handler<client::Message> for Client {
+    type Result = Result<(), Error>;
+
+    fn handle(&mut self, msg: client::Message, ctx: &mut Self::Context) -> Self::Result {
+        ctx.binary(msg);
+        Ok(())
+    }
+}
+
+impl StreamHandler<ws::Message, ws::ProtocolError> for Client {
+    fn handle(&mut self, msg: ws::Message, ctx: &mut Self::Context) {
+        let res = match msg {
+            ws::Message::Ping(msg) => Ok(ctx.pong(&msg)),
+            ws::Message::Binary(msg) => self.on_message(msg.as_ref(), ctx),
+            ws::Message::Text(text) => self.on_message(text.as_bytes(), ctx),
+            ws::Message::Close(reason) => self.on_close(reason, ctx),
+            _ => Ok(()),
+        };
+
+        if let Err(e) = res {
+            eprintln!("{}", e);
+            eprintln!("TODO: Disconnect cleanup");
+            ctx.close(None);
+        }
+    }
+}
+
+impl Client {
+    fn on_message(&mut self, msg: &[u8], ctx: &mut <Self as Actor>::Context) -> Result<(), Error> {
         use self::client::message::*;
-        let mut game = self.game.borrow_mut();
-        let msg = msg.into_data();
-        let msg = server::Message::from_slice(&msg).map_err(Error)?;
+        let mut game = self.game.lock().unwrap();
+        let msg = server::Message::from_slice(&msg)?;
 
         match msg {
             server::Message::Login(login) => {
-                if login.nick.is_empty() {
-                    return Err(Error(format_err!("Empty nick")).into());
-                }
+                ensure!(!login.nick.is_empty(), "Empty nick");
 
                 if game.players.contains_key(&login.nick) {
-                    self.client.send(client::Message::NickAlreadyInUse(NickAlreadyInUse {
+                    ctx.binary(client::Message::NickAlreadyInUse(NickAlreadyInUse {
                         nick: login.nick.clone(),
-                    }).to_vec().unwrap())?;
+                    }));
                     return Ok(());
                 }
 
-                self.client.send(client::Message::NewGame(NewGame {
+                ctx.binary(client::Message::NewGame(NewGame {
                     nick: login.nick.clone(),
                     grid: game.grid.clone(),
                     words: game.words.clone(),
-                }).to_vec().unwrap())?;
+                }));
 
                 // Send current word counts to current player
                 for (nick, player) in &game.players {
-                    self.client.send(client::Message::PlayerStatus(PlayerStatus {
+                    ctx.binary(client::Message::PlayerStatus(PlayerStatus {
                         nick: nick.clone(),
                         found_words: player.found_words.len(),
-                    }).to_vec().unwrap())?;
+                    }));
                 }
 
-                game.players.insert(login.nick.clone(), Player::new(self.client.clone()));
+                game.players.insert(login.nick.clone(), Player::new(ctx.address()));
                 self.broadcast_found_words(&mut game, login.nick.clone(), 0)?;
                 self.nick = login.nick;
             },
@@ -162,7 +160,7 @@ impl ws::Handler for Handler {
                 let found_words;
                 {
                     let player = game.players.get_mut(&self.nick)
-                        .ok_or(Error(format_err!("Player not found")))?;
+                        .ok_or_else(|| format_err!("Player not found"))?;
 
                     if player.found_words.contains(&word) {
                         return Ok(());
@@ -180,36 +178,18 @@ impl ws::Handler for Handler {
         Ok(())
     }
 
-    fn on_close(&mut self, _code: CloseCode, _reason: &str) {
-        let mut game = self.game.borrow_mut();
-
-        println!("Player '{}' disconnected", self.nick);
-
-        game.players.remove(&self.nick);
-    }
-
-    fn on_shutdown(&mut self) {
-        let mut game = self.game.borrow_mut();
-
-        println!("Player '{}' disconnected", self.nick);
-
-        game.players.remove(&self.nick);
-    }
-
-    fn on_error(&mut self, e: ws::Error) {
-        let mut game = self.game.borrow_mut();
-
-        eprintln!("[ERROR]: {}", e);
-
-        game.players.remove(&self.nick);
+    fn on_close(&mut self, _reason: Option<ws::CloseReason>, ctx: &mut <Self as Actor>::Context) -> Result<(), Error> {
+        ctx.stop();
+        Ok(())
     }
 }
 
-struct Error(failure::Error);
+impl Drop for Client {
+    fn drop(&mut self) {
+        let mut game = self.game.lock().unwrap();
 
-impl From<Error> for ws::Error {
-    fn from(e: Error) -> Self {
-        let e = Box::new(e.0.compat()) as Box<_>;
-        ws::Error::new(ws::ErrorKind::Custom(e), "error")
+        println!("Player '{}' disconnected", self.nick);
+
+        game.players.remove(&self.nick);
     }
 }
