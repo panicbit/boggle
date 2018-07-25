@@ -9,3 +9,4 @@ boggle_common = { path = "../common" }
 yew = { git = "https://github.com/DenisKolodin/yew" }
 stdweb = "0.4.8"
 failure = "0.1.1"
+chrono = "0.4.4"

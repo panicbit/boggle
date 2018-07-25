@@ -1,5 +1,5 @@
-#[macro_use]
-extern crate failure;
+#[macro_use] extern crate failure;
+#[macro_use] extern crate lazy_static;
 
 use actix::prelude::*;
 use actix_web::ws;
@@ -10,6 +10,11 @@ use boggle_common::{client, server};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use failure::Error;
+use chrono::{DateTime, Utc, Duration};
+
+lazy_static! {
+    static ref INTERVAL: Duration = Duration::minutes(5);
+}
 
 pub struct Server {
     game: Arc<Mutex<Game>>,
@@ -17,9 +22,11 @@ pub struct Server {
 
 impl Server {
     pub fn new() -> Self {
-        Self {
-            game: Arc::new(Mutex::new(Game::new())),
-        }
+        let game = Arc::new(Mutex::new(Game::new()));
+
+        Timer::start(game.clone());
+
+        Self { game }
     }
 }
 
@@ -46,21 +53,62 @@ impl Player {
     }
 }
 
+struct Timer {
+    game: Arc<Mutex<Game>>,
+}
+
+impl Timer {
+    fn start(game: Arc<Mutex<Game>>) -> Addr<Self> {
+        Arbiter::start(move |_ctx| Self { game })
+    }
+}
+
+impl Actor for Timer {
+    type Context = Context<Self>;
+
+    fn started(&mut self, ctx: &mut Self::Context) {
+        ctx.run_interval(INTERVAL.to_std().unwrap(), |this, _ctx| {
+            let mut game = this.game.lock().unwrap();
+            game.new_grid();
+        });
+    }
+}
+
 struct Game {
     players: HashMap<String, Player>,
     grid: Grid,
     words: Dict,
+    deadline: DateTime<Utc>,
 }
 
 impl Game {
     fn new() -> Self {
-        let grid = thread_rng().gen::<Grid>();
-        let words = grid.words(&DICT).into_iter().collect::<Dict>();
+        let mut game = Self {
+            players: <_>::default(),
+            grid: <_>::default(),
+            words: <_>::default(),
+            deadline: Utc::now(),
+        };
 
-        Self {
-            players: HashMap::new(),
-            grid,
-            words,
+        game.new_grid();
+
+        game
+    }
+
+    fn new_grid(&mut self) {
+        use self::client::message::NewGame;
+        self.deadline = Utc::now() + *INTERVAL;
+        self.grid = thread_rng().gen::<Grid>();
+        self.words = self.grid.words(&DICT).into_iter().collect::<Dict>();
+
+        for (nick, player) in &mut self.players {
+            player.found_words.clear();
+            player.client.do_send(client::Message::NewGame(NewGame {
+                nick: nick.clone(),
+                grid: self.grid.clone(),
+                words: self.words.clone(),
+                deadline: self.deadline.clone(),
+            }));
         }
     }
 }
@@ -74,9 +122,9 @@ impl Client {
     fn broadcast_found_words(&self, game: &mut Game, nick: String, found_words: usize) -> Result<(), Error> {
         use self::client::message::PlayerStatus;
         for (_, player) in &game.players {
-            player.client.try_send(client::Message::PlayerStatus(PlayerStatus {
+            player.client.try_send(client::Message::PlayerStatus(PlayerStatus::FoundWords {
                 nick: nick.clone(),
-                found_words,
+                count: found_words,
             })).map_err(|e| format_err!("{}", e))?;
         }
 
@@ -136,13 +184,14 @@ impl Client {
                     nick: login.nick.clone(),
                     grid: game.grid.clone(),
                     words: game.words.clone(),
+                    deadline: game.deadline.clone(),
                 }));
 
                 // Send current word counts to current player
                 for (nick, player) in &game.players {
-                    ctx.binary(client::Message::PlayerStatus(PlayerStatus {
+                    ctx.binary(client::Message::PlayerStatus(PlayerStatus::FoundWords {
                         nick: nick.clone(),
-                        found_words: player.found_words.len(),
+                        count: player.found_words.len(),
                     }));
                 }
 
@@ -179,7 +228,17 @@ impl Client {
     }
 
     fn on_close(&mut self, _reason: Option<ws::CloseReason>, ctx: &mut <Self as Actor>::Context) -> Result<(), Error> {
+        use self::client::message::PlayerStatus;
+        let game = self.game.lock().unwrap();
+        
+        for (_, player) in &game.players {
+            player.client.do_send(client::Message::PlayerStatus(PlayerStatus::Disconnected {
+                nick: self.nick.clone(),
+            }))
+        }
+        
         ctx.stop();
+
         Ok(())
     }
 }

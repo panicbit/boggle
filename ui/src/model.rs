@@ -1,12 +1,14 @@
 use yew::prelude::*;
 use yew::services::ConsoleService;
+use yew::services::interval::{IntervalService, IntervalTask};
 use yew::services::websocket::{WebSocketService, WebSocketStatus, WebSocketTask};
-use boggle::{Grid, Dict};
+use boggle::Grid;
 use boggle_common::{client, server};
 use std::collections::HashSet;
 use stdweb::web;
 use failure::Error;
 use BinaryMessage;
+use chrono::{DateTime, Utc, Duration};
 
 pub mod login;
 pub use self::login::Login;
@@ -19,15 +21,47 @@ pub struct Model {
     console: ConsoleService,
     state: State,
     game: Game,
+    _interval: IntervalTask,
 }
 
-#[derive(PartialEq, Eq, Default, Clone)]
+#[derive(PartialEq, Eq, Clone)]
 pub struct Game {
     nick: String,
     grid: Grid,
     words: HashSet<String>,
     found_words: Vec<String>,
     players: Vec<(String, usize)>,
+    deadline: DateTime<Utc>,
+}
+
+impl Game {
+    fn time_left<C: Component>(&self) -> Html<C> {
+        let mut time_left = self.deadline.signed_duration_since(now());
+
+        if time_left < Duration::zero() {
+            time_left = Duration::zero();
+        }
+
+        let m = time_left.num_minutes();
+        let s = time_left.num_seconds() % 60;
+
+        html! {
+            <>{ format!("{}:{:02}", m, s) }</>
+        }
+    }
+}
+
+impl Default for Game {
+    fn default() -> Self {
+        Self {
+            nick: <_>::default(),
+            grid: <_>::default(),
+            words: <_>::default(),
+            found_words: <_>::default(),
+            players: <_>::default(),
+            deadline: now(),
+        }
+    }
 }
 
 pub enum State {
@@ -39,6 +73,7 @@ pub enum Msg {
     StartPlay(String),
     FoundWord(usize, String),
     ClientMessage(client::Message),
+    RefreshUi,
 }
 
 impl Component for Model {
@@ -46,13 +81,18 @@ impl Component for Model {
     type Properties = ();
 
     fn create(_props: (), link: ComponentLink<Self>) -> Self {
-        let server = connect_to_server(link).unwrap();
+        let server = connect_to_server(&link).unwrap();
+        let one_second = Duration::seconds(1).to_std().unwrap();
+        let interval = IntervalService::new().spawn(one_second, link.send_back(|()| {
+            Msg::RefreshUi
+        }));
 
         Model {
             server,
             state: State::Login,
             console: ConsoleService::new(),
             game: <_>::default(),
+            _interval: interval,
         }
     }
 
@@ -70,27 +110,36 @@ impl Component for Model {
                     word,
                 }).to_vec()));
             },
+            Msg::RefreshUi => {},
             Msg::ClientMessage(client::Message::NewGame(new_game)) => {
-                self.game = Game::default();
                 self.game.nick = new_game.nick;
                 self.game.grid = new_game.grid;
                 self.game.words = new_game.words.values().cloned().collect();
+                self.game.found_words = Vec::new();
+                self.game.deadline = new_game.deadline;
+                for (_, found_words) in &mut self.game.players {
+                    *found_words = 0;
+                }
                 self.state = State::Play;
             },
             Msg::ClientMessage(client::Message::NickAlreadyInUse(msg)) => {
                 web::alert(&format!("'{}' is already in use", msg.nick));
             },
-            Msg::ClientMessage(client::Message::PlayerStatus(status)) => {
-                self.console.log(&format!("status: {:?}", status));
+            Msg::ClientMessage(client::Message::PlayerStatus(client::message::PlayerStatus::FoundWords { nick, count })) => {
+                self.console.log(&format!("status: {} found {} words", nick, count));
 
-                if let Some((_, ref mut found_words)) = self.game.players.iter_mut().find(|(name, _)| &status.nick == name) {
-                    *found_words = status.found_words;
+                if let Some((_, ref mut found_words)) = self.game.players.iter_mut().find(|(name, _)| &nick == name) {
+                    *found_words = count;
                 } else {
-                    self.game.players.push((status.nick, status.found_words));
+                    self.game.players.push((nick, count));
                 }
 
                 self.game.players.sort_by(|(_, count_a), (_, count_b)| count_b.cmp(&count_a));
-            }
+            },
+            Msg::ClientMessage(client::Message::PlayerStatus(client::message::PlayerStatus::Disconnected { nick })) => {
+                self.console.log(&format!("player {} disconnected", nick));
+                self.game.players.retain(|(name, _)| &nick != name);
+            },
         }
         
         true
@@ -115,7 +164,7 @@ impl Renderable<Self> for Model {
     }
 }
 
-fn connect_to_server(link: ComponentLink<Model>) -> Result<WebSocketTask, Error> {
+fn connect_to_server(link: &ComponentLink<Model>) -> Result<WebSocketTask, Error> {
     let location = web::window().location().expect("window location");
     let hostname = location.hostname()?;
     let port = location.port()?;
@@ -143,4 +192,10 @@ fn connect_to_server(link: ComponentLink<Model>) -> Result<WebSocketTask, Error>
     );
 
     Ok(server)
+}
+
+fn now() -> DateTime<Utc> {
+    let now = web::Date::new().to_iso_string();
+    let now = DateTime::parse_from_rfc3339(&now).unwrap();
+    now.with_timezone(&Utc)
 }

@@ -114,6 +114,7 @@ impl Renderable<Play> for Play {
                     </ol>
                 </div>
                 <div>
+                    <p>{ self.game.time_left() }</p>
                     <p>
                         { format!("Found {} out of {} words:", self.game.found_words.len(), self.game.words.len()) }
                     </p>

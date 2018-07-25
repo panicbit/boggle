@@ -1,6 +1,7 @@
 use failure::Error;
 use boggle::{Grid, Dict};
 use std::io::{Read, Write};
+use chrono::{DateTime, Utc};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Message {
@@ -36,6 +37,7 @@ pub struct NewGame {
     pub nick: String,
     pub grid: Grid,
     pub words: Dict,
+    pub deadline: DateTime<Utc>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -44,9 +46,9 @@ pub struct NickAlreadyInUse {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct PlayerStatus {
-    pub nick: String,
-    pub found_words: usize,
+pub enum PlayerStatus {
+    FoundWords { nick: String, count: usize },
+    Disconnected { nick: String },
 }
 
 #[cfg(feature="actix-web")]

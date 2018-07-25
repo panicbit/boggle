@@ -5,6 +5,7 @@ extern crate boggle;
 extern crate boggle_common;
 #[macro_use] extern crate yew;
 extern crate stdweb;
+extern crate chrono;
 
 use failure::Error;
 use yew::prelude::*;
