@@ -14,7 +14,7 @@ use failure::Error;
 use chrono::{DateTime, Utc, Duration};
 
 lazy_static! {
-    static ref INTERVAL: Duration = Duration::minutes(5);
+    static ref INTERVAL: Duration = Duration::minutes(10);
 }
 
 pub struct Server {
