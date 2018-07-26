@@ -10,7 +10,6 @@ use rand::{Rng, thread_rng};
 use dict::DICT;
 use boggle_common::{client, server};
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
 use failure::Error;
 use chrono::{DateTime, Utc, Duration};
 
@@ -54,14 +53,16 @@ impl Actor for Server {
 
     fn started(&mut self, ctx: &mut Self::Context) {
         ctx.notify(NewGrid);
-        Timer::new(ctx.address()).start();
+        ctx.run_interval(INTERVAL.to_std().unwrap(), |_this, ctx| {
+            ctx.notify(NewGrid);
+        });
     }
 }
 
 impl Handler<NewClient> for Server {
     type Result = Result<(), Error>;
 
-    fn handle(&mut self, msg: NewClient, ctx: &mut <Self as Actor>::Context) -> Result<(), Error> {
+    fn handle(&mut self, msg: NewClient, _ctx: &mut <Self as Actor>::Context) -> Result<(), Error> {
         use self::client::message::*;
         let NewClient { nick, client } = msg;
         
@@ -79,7 +80,7 @@ impl Handler<NewClient> for Server {
             grid: self.grid.clone(),
             words: self.words.clone(),
             deadline: self.deadline.clone(),
-        })).map_err(|e| format_err!("{}", e));
+        })).map_err(|e| format_err!("{}", e))?;
 
         // Send current word counts to current player
         for player in self.players.values() {
@@ -100,7 +101,7 @@ impl Handler<NewClient> for Server {
 impl Handler<NewGrid> for Server {
     type Result = ();
 
-    fn handle(&mut self, _msg: NewGrid, ctx: &mut <Self as Actor>::Context) {
+    fn handle(&mut self, _msg: NewGrid, _ctx: &mut <Self as Actor>::Context) {
         use self::client::message::NewGame;
 
         self.deadline = Utc::now() + *INTERVAL;
@@ -122,7 +123,7 @@ impl Handler<NewGrid> for Server {
 impl Handler<SubmitWord> for Server {
     type Result = Result<(), Error>;
 
-    fn handle(&mut self, msg: SubmitWord, ctx: &mut <Self as Actor>::Context) -> Result<(), Error> {
+    fn handle(&mut self, msg: SubmitWord, _ctx: &mut <Self as Actor>::Context) -> Result<(), Error> {
         let SubmitWord { client, word } = msg;
 
         if self.words.values().find(|found_word| **found_word == word).is_none() {
@@ -152,7 +153,7 @@ impl Handler<SubmitWord> for Server {
 impl Handler<Disconnected> for Server {
     type Result = Result<(), Error>;
 
-    fn handle(&mut self, msg: Disconnected, ctx: &mut <Self as Actor>::Context) -> Result<(), Error> {
+    fn handle(&mut self, msg: Disconnected, _ctx: &mut <Self as Actor>::Context) -> Result<(), Error> {
         use self::client::message::PlayerStatus;
 
         let Disconnected { client } = msg;
@@ -181,44 +182,6 @@ impl Player {
         Self {
             nick,
             found_words: HashSet::new(),
-        }
-    }
-}
-
-struct Timer {
-    server: Addr<Server>,
-}
-
-impl Timer {
-    fn new(server: Addr<Server>) -> Self {
-        Self { server }
-    }
-}
-
-impl Actor for Timer {
-    type Context = Context<Self>;
-
-    fn started(&mut self, ctx: &mut Self::Context) {
-        ctx.run_interval(INTERVAL.to_std().unwrap(), |this, _ctx| {
-            this.server.do_send(NewGrid);
-        });
-    }
-}
-
-struct Game {
-    players: HashMap<String, Player>,
-    grid: Grid,
-    words: Dict,
-    deadline: DateTime<Utc>,
-}
-
-impl Game {
-    fn new() -> Self {
-        Self {
-            players: <_>::default(),
-            grid: <_>::default(),
-            words: <_>::default(),
-            deadline: Utc::now(),
         }
     }
 }
