@@ -1,3 +1,5 @@
+#![feature(nll)]
+
 #[macro_use] extern crate failure;
 #[macro_use] extern crate lazy_static;
 
@@ -17,49 +19,179 @@ lazy_static! {
 }
 
 pub struct Server {
-    game: Arc<Mutex<Game>>,
+    players: HashMap<Addr<Client>, Player>,
+    grid: Grid,
+    words: Dict,
+    deadline: DateTime<Utc>,
 }
 
 impl Server {
     pub fn new() -> Self {
-        let game = Arc::new(Mutex::new(Game::new()));
+        Self {
+            players: HashMap::new(),
+            grid: Grid::default(),
+            words: Dict::new(),
+            deadline: Utc::now(),
+        }
+    }
 
-        Timer::start(game.clone());
+    fn broadcast_found_words(&self, nick: String, found_words: usize) -> Result<(), Error> {
+        use self::client::message::PlayerStatus;
 
-        Self { game }
+        for client in self.players.keys() {
+            client.try_send(client::Message::PlayerStatus(PlayerStatus::FoundWords {
+                nick: nick.clone(),
+                count: found_words,
+            })).map_err(|e| format_err!("{}", e))?;
+        }
+
+        Ok(())
     }
 }
 
-impl Server {
-    pub fn new_client(&self) -> Client {
-        Client {
-            nick: String::new(),
-            game: self.game.clone(),
+impl Actor for Server {
+    type Context = Context<Self>;
+
+    fn started(&mut self, ctx: &mut Self::Context) {
+        ctx.notify(NewGrid);
+        Timer::new(ctx.address()).start();
+    }
+}
+
+impl Handler<NewClient> for Server {
+    type Result = Result<(), Error>;
+
+    fn handle(&mut self, msg: NewClient, ctx: &mut <Self as Actor>::Context) -> Result<(), Error> {
+        use self::client::message::*;
+        let NewClient { nick, client } = msg;
+        
+        ensure!(!nick.is_empty(), "Empty nick");
+
+        if self.players.values().find(|player| player.nick == nick).is_some() {
+            client.do_send(client::Message::NickAlreadyInUse(NickAlreadyInUse {
+                nick: nick,
+            }));
+            return Ok(());
+        }
+
+        client.try_send(client::Message::NewGame(NewGame {
+            nick: nick.clone(),
+            grid: self.grid.clone(),
+            words: self.words.clone(),
+            deadline: self.deadline.clone(),
+        })).map_err(|e| format_err!("{}", e));
+
+        // Send current word counts to current player
+        for player in self.players.values() {
+            client.do_send(client::Message::PlayerStatus(PlayerStatus::FoundWords {
+                nick: player.nick.clone(),
+                count: player.found_words.len(),
+            }));
+        }
+
+        self.players.insert(client, Player::new(nick.clone()));
+
+        self.broadcast_found_words(nick, 0)?;
+
+        Ok(())
+    }
+}
+
+impl Handler<NewGrid> for Server {
+    type Result = ();
+
+    fn handle(&mut self, _msg: NewGrid, ctx: &mut <Self as Actor>::Context) {
+        use self::client::message::NewGame;
+
+        self.deadline = Utc::now() + *INTERVAL;
+        self.grid = thread_rng().gen::<Grid>();
+        self.words = self.grid.words(&DICT).into_iter().collect::<Dict>();
+
+        for (client, player) in &mut self.players {
+            player.found_words.clear();
+            client.do_send(client::Message::NewGame(NewGame {
+                nick: player.nick.clone(),
+                grid: self.grid.clone(),
+                words: self.words.clone(),
+                deadline: self.deadline.clone(),
+            }));
         }
     }
 }
 
+impl Handler<SubmitWord> for Server {
+    type Result = Result<(), Error>;
+
+    fn handle(&mut self, msg: SubmitWord, ctx: &mut <Self as Actor>::Context) -> Result<(), Error> {
+        let SubmitWord { client, word } = msg;
+
+        if self.words.values().find(|found_word| **found_word == word).is_none() {
+            return Ok(());
+        }
+
+        let player = self.players.get_mut(&client)
+            .ok_or_else(|| format_err!("Player not found"))?;
+
+        if player.found_words.contains(&word) {
+            return Ok(());
+        }
+
+        player.found_words.insert(word);
+
+        let nick = player.nick.clone();
+        let found_words = player.found_words.len();
+
+        println!("Broadcasting found words: ({}) {}", found_words, player.nick);
+
+        self.broadcast_found_words(nick, found_words)?;
+
+        Ok(())
+    }
+}
+
+impl Handler<Disconnected> for Server {
+    type Result = Result<(), Error>;
+
+    fn handle(&mut self, msg: Disconnected, ctx: &mut <Self as Actor>::Context) -> Result<(), Error> {
+        use self::client::message::PlayerStatus;
+
+        let Disconnected { client } = msg;
+        let player = match self.players.remove(&client) {
+            Some(player) => player,
+            None => return Ok(()),
+        };
+
+        for client in self.players.keys() {
+            client.do_send(client::Message::PlayerStatus(PlayerStatus::Disconnected {
+                nick: player.nick.clone(),
+            }));
+        }
+
+        Ok(())
+    }
+}
+
 struct Player {
-    client: Addr<Client>,
+    nick: String,
     found_words: HashSet<String>,
 }
 
 impl Player {
-    fn new(client: Addr<Client>) -> Self {
+    fn new(nick: String) -> Self {
         Self {
-            client,
+            nick,
             found_words: HashSet::new(),
         }
     }
 }
 
 struct Timer {
-    game: Arc<Mutex<Game>>,
+    server: Addr<Server>,
 }
 
 impl Timer {
-    fn start(game: Arc<Mutex<Game>>) -> Addr<Self> {
-        Arbiter::start(move |_ctx| Self { game })
+    fn new(server: Addr<Server>) -> Self {
+        Self { server }
     }
 }
 
@@ -68,8 +200,7 @@ impl Actor for Timer {
 
     fn started(&mut self, ctx: &mut Self::Context) {
         ctx.run_interval(INTERVAL.to_std().unwrap(), |this, _ctx| {
-            let mut game = this.game.lock().unwrap();
-            game.new_grid();
+            this.server.do_send(NewGrid);
         });
     }
 }
@@ -83,57 +214,67 @@ struct Game {
 
 impl Game {
     fn new() -> Self {
-        let mut game = Self {
+        Self {
             players: <_>::default(),
             grid: <_>::default(),
             words: <_>::default(),
             deadline: Utc::now(),
-        };
-
-        game.new_grid();
-
-        game
-    }
-
-    fn new_grid(&mut self) {
-        use self::client::message::NewGame;
-        self.deadline = Utc::now() + *INTERVAL;
-        self.grid = thread_rng().gen::<Grid>();
-        self.words = self.grid.words(&DICT).into_iter().collect::<Dict>();
-
-        for (nick, player) in &mut self.players {
-            player.found_words.clear();
-            player.client.do_send(client::Message::NewGame(NewGame {
-                nick: nick.clone(),
-                grid: self.grid.clone(),
-                words: self.words.clone(),
-                deadline: self.deadline.clone(),
-            }));
         }
     }
 }
 
-pub struct Client {
-    game: Arc<Mutex<Game>>,
+struct NewGrid;
+
+impl Message for NewGrid {
+    type Result = ();
+}
+
+struct NewClient {
+    client: Addr<Client>,
     nick: String,
 }
 
-impl Client {
-    fn broadcast_found_words(&self, game: &mut Game, nick: String, found_words: usize) -> Result<(), Error> {
-        use self::client::message::PlayerStatus;
-        for (_, player) in &game.players {
-            player.client.try_send(client::Message::PlayerStatus(PlayerStatus::FoundWords {
-                nick: nick.clone(),
-                count: found_words,
-            })).map_err(|e| format_err!("{}", e))?;
-        }
+impl Message for NewClient {
+    type Result = Result<(), Error>;
+}
 
-        Ok(())
+struct SubmitWord {
+    client: Addr<Client>,
+    word: String,
+}
+
+impl Message for SubmitWord {
+    type Result = Result<(), Error>;
+}
+
+struct Disconnected {
+    client: Addr<Client>,
+}
+
+impl Message for Disconnected {
+    type Result = Result<(), Error>;
+}
+
+pub struct Client {
+    server: Addr<Server>,
+}
+
+impl Client {
+    pub fn new(server: Addr<Server>) -> Self {
+        Self {
+            server,
+        }
     }
 }
 
 impl Actor for Client {
     type Context = ws::WebsocketContext<Self>;
+
+    fn stopped(&mut self, ctx: &mut Self::Context) {
+        self.server.do_send(Disconnected {
+            client: ctx.address(),
+        });
+    }
 }
 
 impl Handler<client::Message> for Client {
@@ -165,90 +306,25 @@ impl StreamHandler<ws::Message, ws::ProtocolError> for Client {
 
 impl Client {
     fn on_message(&mut self, msg: &[u8], ctx: &mut <Self as Actor>::Context) -> Result<(), Error> {
-        use self::client::message::*;
-        let mut game = self.game.lock().unwrap();
         let msg = server::Message::from_slice(&msg)?;
 
         match msg {
-            server::Message::Login(login) => {
-                ensure!(!login.nick.is_empty(), "Empty nick");
-
-                if game.players.contains_key(&login.nick) {
-                    ctx.binary(client::Message::NickAlreadyInUse(NickAlreadyInUse {
-                        nick: login.nick.clone(),
-                    }));
-                    return Ok(());
-                }
-
-                ctx.binary(client::Message::NewGame(NewGame {
-                    nick: login.nick.clone(),
-                    grid: game.grid.clone(),
-                    words: game.words.clone(),
-                    deadline: game.deadline.clone(),
-                }));
-
-                // Send current word counts to current player
-                for (nick, player) in &game.players {
-                    ctx.binary(client::Message::PlayerStatus(PlayerStatus::FoundWords {
-                        nick: nick.clone(),
-                        count: player.found_words.len(),
-                    }));
-                }
-
-                game.players.insert(login.nick.clone(), Player::new(ctx.address()));
-                self.broadcast_found_words(&mut game, login.nick.clone(), 0)?;
-                self.nick = login.nick;
-            },
-            server::Message::SubmitWord(submit_word) => {
-                let word = submit_word.word;
-
-                if game.words.values().find(|found_word| **found_word == word).is_none() {
-                    return Ok(());
-                }
-
-                let found_words;
-                {
-                    let player = game.players.get_mut(&self.nick)
-                        .ok_or_else(|| format_err!("Player not found"))?;
-
-                    if player.found_words.contains(&word) {
-                        return Ok(());
-                    }
-
-                    player.found_words.insert(word);
-                    found_words = player.found_words.len();
-                };
-
-                println!("Broadcasting found words: ({}) {}", found_words, self.nick);
-                self.broadcast_found_words(&mut game, self.nick.clone(), found_words)?;
-            }
+            server::Message::Login(login) => self.server.do_send(NewClient {
+                client: ctx.address(),
+                nick: login.nick,
+            }),
+            server::Message::SubmitWord(submit_word) => self.server.do_send(SubmitWord {
+                client: ctx.address(),
+                word: submit_word.word,
+            }),
         }
 
         Ok(())
     }
 
     fn on_close(&mut self, _reason: Option<ws::CloseReason>, ctx: &mut <Self as Actor>::Context) -> Result<(), Error> {
-        use self::client::message::PlayerStatus;
-        let game = self.game.lock().unwrap();
-        
-        for (_, player) in &game.players {
-            player.client.do_send(client::Message::PlayerStatus(PlayerStatus::Disconnected {
-                nick: self.nick.clone(),
-            }))
-        }
-        
         ctx.stop();
-
         Ok(())
     }
 }
 
-impl Drop for Client {
-    fn drop(&mut self) {
-        let mut game = self.game.lock().unwrap();
-
-        println!("Player '{}' disconnected", self.nick);
-
-        game.players.remove(&self.nick);
-    }
-}
