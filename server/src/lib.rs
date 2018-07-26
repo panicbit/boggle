@@ -13,6 +13,8 @@ use std::collections::{HashMap, HashSet};
 use failure::Error;
 use chrono::{DateTime, Utc, Duration};
 
+const MIN_WORDS: usize = 100;
+
 lazy_static! {
     static ref INTERVAL: Duration = Duration::minutes(10);
 }
@@ -104,9 +106,15 @@ impl Handler<NewGrid> for Server {
     fn handle(&mut self, _msg: NewGrid, _ctx: &mut <Self as Actor>::Context) {
         use self::client::message::NewGame;
 
+        loop {
+            self.grid = thread_rng().gen::<Grid>();
+            self.words = self.grid.words(&DICT).into_iter().collect::<Dict>();
+            if self.words.values().count() >= MIN_WORDS {
+                break;
+            }
+        }
+
         self.deadline = Utc::now() + *INTERVAL;
-        self.grid = thread_rng().gen::<Grid>();
-        self.words = self.grid.words(&DICT).into_iter().collect::<Dict>();
 
         for (client, player) in &mut self.players {
             player.found_words.clear();
