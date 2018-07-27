@@ -69,7 +69,7 @@ impl Component for Play {
                     if let Err(index) = self.game.found_words.binary_search(&word) {
                         // …and signal that a new word was found
                         if let Some(ref on_found_word) = self.on_found_word {
-                            on_found_word.emit((index, self.word.clone()));
+                            on_found_word.emit((index, word));
                         }
                     }
                 }
