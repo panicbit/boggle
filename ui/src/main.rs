@@ -1,5 +1,3 @@
-#![feature(non_modrs_mods)]
-#![feature(nll)]
 extern crate failure;
 extern crate boggle;
 extern crate boggle_common;

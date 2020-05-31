@@ -1,4 +1,3 @@
-#[macro_use] extern crate structopt_derive;
 use actix_web::{App, ws};
 use actix_web::actix::*;
 use boggle_server::{Server, Client};
