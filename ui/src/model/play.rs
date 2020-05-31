@@ -1,10 +1,8 @@
 use yew::prelude::*;
-use yew::services::ConsoleService;
 use boggle::Grid;
 use super::Game;
 
 pub struct Play {
-    console: ConsoleService,
     game: Game,
     word: String,
     on_found_word: Option<Callback<(usize, String)>>,
@@ -50,7 +48,6 @@ impl Component for Play {
 
     fn create(props: Self::Properties, _link: ComponentLink<Self>) -> Self {
         Self {
-            console: ConsoleService::new(),
             game: props.game,
             word: String::new(),
             on_found_word: props.on_found_word,
