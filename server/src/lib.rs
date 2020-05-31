@@ -1,9 +1,7 @@
-#![feature(nll)]
-
 #[macro_use] extern crate failure;
 #[macro_use] extern crate lazy_static;
 
-use actix::prelude::*;
+use ::actix::prelude::*;
 use actix_web::ws;
 use boggle::{Grid, Dict};
 use rand::{Rng, thread_rng};
