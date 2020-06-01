@@ -50,15 +50,3 @@ pub enum PlayerStatus {
     FoundWords { nick: String, count: usize },
     Disconnected { nick: String },
 }
-
-#[cfg(feature="actix-web")]
-impl From<Message> for actix_web::Binary {
-    fn from(msg: Message) -> Self {
-        msg.to_vec().unwrap().into()
-    }
-}
-
-#[cfg(feature="actix")]
-impl actix::Message for Message {
-    type Result = Result<(), Error>;
-}

@@ -3,7 +3,7 @@ use std::str::FromStr;
 use sequence_trie::SequenceTrie;
 use Dict;
 use rand::Rng;
-use rand::distributions::{Distribution, Standard, Weighted, WeightedChoice};
+use rand::distributions::{Distribution, Standard, WeightedIndex};
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Grid {
@@ -119,39 +119,44 @@ pub enum FromStrError {
 impl Distribution<Grid> for Standard {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Grid {
         // Taken from https://boardgamegeek.com/thread/300883/letter-distribution
-        let chars = &mut [
-            Weighted { item: 'e', weight: 19 },
-            Weighted { item: 't', weight: 13 },
-            Weighted { item: 'a', weight: 12 },
-            Weighted { item: 'r', weight: 12 },
-            Weighted { item: 'i', weight: 11 },
-            Weighted { item: 'n', weight: 11 },
-            Weighted { item: 'o', weight: 11 },
-            Weighted { item: 's', weight: 9 },
-            Weighted { item: 'd', weight: 6 },
-            Weighted { item: 'c', weight: 5 },
-            Weighted { item: 'h', weight: 5 },
-            Weighted { item: 'l', weight: 5 },
-            Weighted { item: 'f', weight: 4 },
-            Weighted { item: 'm', weight: 4 },
-            Weighted { item: 'p', weight: 4 },
-            Weighted { item: 'u', weight: 4 },
-            Weighted { item: 'g', weight: 3 },
-            Weighted { item: 'y', weight: 3 },
-            Weighted { item: 'w', weight: 2 },
-            Weighted { item: 'b', weight: 1 },
-            Weighted { item: 'j', weight: 1 },
-            Weighted { item: 'k', weight: 1 },
-            Weighted { item: 'q', weight: 1 },
-            Weighted { item: 'v', weight: 1 },
-            Weighted { item: 'x', weight: 1 },
-            Weighted { item: 'z', weight: 1 },
+        let weighted_chars = &[
+            ('e', 19),
+            ('t', 13),
+            ('a', 12),
+            ('r', 12),
+            ('i', 11),
+            ('n', 11),
+            ('o', 11),
+            ('s', 9),
+            ('d', 6),
+            ('c', 5),
+            ('h', 5),
+            ('l', 5),
+            ('f', 4),
+            ('m', 4),
+            ('p', 4),
+            ('u', 4),
+            ('g', 3),
+            ('y', 3),
+            ('w', 2),
+            ('b', 1),
+            ('j', 1),
+            ('k', 1),
+            ('q', 1),
+            ('v', 1),
+            ('x', 1),
+            ('z', 1),
         ];
 
-        let wc = WeightedChoice::new(chars);
+        let weights = weighted_chars.iter().map(|(_, weight)| weight);
+        let weighted_index = WeightedIndex::new(weights).unwrap();
 
         let grid: String = (0..Grid::WIDTH * Grid::HEIGHT)
-            .map(|_| wc.sample(rng))
+            .map(|_| {
+                let index = weighted_index.sample(rng);
+                let (char, _) = weighted_chars[index];
+                char
+            })
             .collect();
 
         grid.parse().unwrap()

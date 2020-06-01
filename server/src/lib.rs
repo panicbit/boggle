@@ -2,7 +2,7 @@
 #[macro_use] extern crate lazy_static;
 
 use ::actix::prelude::*;
-use actix_web::ws;
+use actix_web_actors::ws;
 use boggle::{Grid, Dict};
 use rand::{Rng, thread_rng};
 use dict::DICT;
@@ -10,6 +10,7 @@ use boggle_common::{client, server};
 use std::collections::{HashMap, HashSet};
 use failure::Error;
 use chrono::{DateTime, Utc, Duration};
+use ws::ProtocolError;
 
 lazy_static! {
     static ref INTERVAL: Duration = Duration::minutes(10);
@@ -39,7 +40,7 @@ impl Server {
             client.try_send(client::Message::PlayerStatus(PlayerStatus::FoundWords {
                 nick: nick.clone(),
                 count: found_words,
-            })).map_err(|e| format_err!("{}", e))?;
+            }).into()).map_err(|e| format_err!("{}", e))?;
         }
 
         Ok(())
@@ -69,7 +70,7 @@ impl Handler<NewClient> for Server {
         if self.players.values().find(|player| player.nick == nick).is_some() {
             client.do_send(client::Message::NickAlreadyInUse(NickAlreadyInUse {
                 nick: nick,
-            }));
+            }).into());
             return Ok(());
         }
 
@@ -78,14 +79,14 @@ impl Handler<NewClient> for Server {
             grid: self.grid.clone(),
             words: self.words.clone(),
             deadline: self.deadline.clone(),
-        })).map_err(|e| format_err!("{}", e))?;
+        }).into()).map_err(|e| format_err!("{}", e))?;
 
         // Send current word counts to current player
         for player in self.players.values() {
             client.do_send(client::Message::PlayerStatus(PlayerStatus::FoundWords {
                 nick: player.nick.clone(),
                 count: player.found_words.len(),
-            }));
+            }).into());
         }
 
         self.players.insert(client, Player::new(nick.clone()));
@@ -113,7 +114,7 @@ impl Handler<NewGrid> for Server {
                 grid: self.grid.clone(),
                 words: self.words.clone(),
                 deadline: self.deadline.clone(),
-            }));
+            }).into());
         }
     }
 }
@@ -163,7 +164,7 @@ impl Handler<Disconnected> for Server {
         for client in self.players.keys() {
             client.do_send(client::Message::PlayerStatus(PlayerStatus::Disconnected {
                 nick: player.nick.clone(),
-            }));
+            }).into());
         }
 
         Ok(())
@@ -238,17 +239,39 @@ impl Actor for Client {
     }
 }
 
-impl Handler<client::Message> for Client {
+struct ClientMessage(client::Message);
+
+impl Message for ClientMessage {
+    type Result = Result<(), Error>;
+}
+
+impl From<client::Message> for ClientMessage {
+    fn from(msg: client::Message) -> ClientMessage {
+        ClientMessage(msg)
+    }
+}
+
+impl Handler<ClientMessage> for Client {
     type Result = Result<(), Error>;
 
-    fn handle(&mut self, msg: client::Message, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: ClientMessage, ctx: &mut Self::Context) -> Self::Result {
+        let msg = msg.0.to_vec()?;
         ctx.binary(msg);
         Ok(())
     }
 }
 
-impl StreamHandler<ws::Message, ws::ProtocolError> for Client {
-    fn handle(&mut self, msg: ws::Message, ctx: &mut Self::Context) {
+impl StreamHandler<Result<ws::Message, ProtocolError>> for Client {
+    fn handle(&mut self, msg: Result<ws::Message, ProtocolError>, ctx: &mut Self::Context) {
+        let msg = match msg {
+            Ok(msg) => msg,
+            Err(err) => {
+                eprintln!("Error: {}", err);
+                ctx.close(None);
+                return;
+            }
+        };
+
         let res = match msg {
             ws::Message::Ping(msg) => Ok(ctx.pong(&msg)),
             ws::Message::Binary(msg) => self.on_message(msg.as_ref(), ctx),

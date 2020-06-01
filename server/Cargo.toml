@@ -6,13 +6,14 @@ edition = "2018"
 
 [dependencies]
 boggle = { path = ".." }
-boggle_common = { path = "../common", features = ["actix", "actix-web"] }
+boggle_common = { path = "../common" }
 dict = { path = "../dict" }
-rand = "0.5.4"
+rand = "0.7.3"
 bincode = "1.0.1"
 failure = "0.1.1"
-actix-web = "0.7.1"
-actix = "0.7.1"
+actix-web = "3.0.0-alpha.3"
+actix = "0.10.0-alpha.3"
+actix-web-actors = "3.0.0-alpha.1"
 lazy_static = "1.4.0"
 chrono = "0.4.4"
 structopt = "0.3.12"
